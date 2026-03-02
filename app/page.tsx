@@ -20,6 +20,12 @@ type Scrap = {
   created_at: string;
 };
 
+type NewsResult = {
+  title: string;
+  description: string;
+  url: string;
+};
+
 export default function Home() {
   const [screen, setScreen] = useState<'home' | 'result' | 'scrapbook' | 'detail'>('home');
   const [scraps, setScraps] = useState<Scrap[]>([]);
@@ -29,19 +35,37 @@ export default function Home() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [memo, setMemo] = useState('');
   const [searchTag, setSearchTag] = useState('すべて');
+  const [newsResults, setNewsResults] = useState<NewsResult[]>([]);
+  const [searchingNews, setSearchingNews] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetchScraps();
-  }, []);
+  useEffect(() => { fetchScraps(); }, []);
 
   const fetchScraps = async () => {
     const { data } = await supabase.from('scraps').select('*').order('created_at', { ascending: false });
     if (data) setScraps(data);
   };
 
+  const searchNews = async (title: string) => {
+    setSearchingNews(true);
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: title }),
+      });
+      const data = await res.json();
+      setNewsResults(data.results || []);
+    } catch {
+      setNewsResults([]);
+    }
+    setSearchingNews(false);
+  };
+
   const handleFile = useCallback(async (file: File) => {
     setAnalyzing(true);
+    setNewsResults([]);
     setScreen('result');
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -54,6 +78,7 @@ export default function Home() {
         });
         const data = await res.json();
         setAnalyzed({ ...data, imageUrl: e.target?.result as string });
+        searchNews(data.title);
       } catch {
         setAnalyzed({ title: '読み取りに失敗しました', summary: 'もう一度お試しください。', imageUrl: e.target?.result as string });
       }
@@ -64,100 +89,145 @@ export default function Home() {
 
   const handleSave = async () => {
     if (!analyzed) return;
-    const { error } = await supabase.from('scraps').insert({
+    await supabase.from('scraps').insert({
       title: analyzed.title,
       summary: analyzed.summary,
       memo,
       tags: selectedTags.join(','),
       image_url: analyzed.imageUrl,
     });
-    if (!error) {
-      await fetchScraps();
-      setSelectedTags([]);
-      setMemo('');
-      setAnalyzed(null);
-      setScreen('scrapbook');
-    }
+    await fetchScraps();
+    setSelectedTags([]);
+    setMemo('');
+    setAnalyzed(null);
+    setNewsResults([]);
+    setScreen('scrapbook');
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('このスクラップを削除しますか？')) return;
+    setDeleting(true);
+    await supabase.from('scraps').delete().eq('id', id);
+    await fetchScraps();
+    setDeleting(false);
+    setScreen('scrapbook');
   };
 
   const filtered = searchTag === 'すべて' ? scraps : scraps.filter(s => s.tags?.includes(searchTag));
 
-  const s = {
-    app: { fontFamily: "'Hiragino Sans', sans-serif", minHeight: '100vh', background: '#f5f0e8', color: '#1a1208' },
-    header: { background: '#1a1208', color: '#f5f0e8', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '3px solid #c8a04a' },
-    logo: { fontSize: '18px', fontWeight: 700, letterSpacing: '0.05em' },
-    body: { maxWidth: '600px', margin: '0 auto', padding: '24px 16px' },
-    card: { background: '#fffdf7', border: '1px solid #d4c5a0', borderRadius: '4px', padding: '20px', marginBottom: '16px', boxShadow: '2px 2px 8px rgba(0,0,0,0.06)' },
-    capture: { border: '2px dashed #c8a04a', borderRadius: '4px', padding: '48px 20px', textAlign: 'center' as const, background: '#fffdf7', cursor: 'pointer' },
-    btn: (v = 'primary') => ({ padding: '10px 24px', background: v === 'primary' ? '#1a1208' : 'transparent', color: v === 'primary' ? '#f5f0e8' : '#1a1208', border: v === 'primary' ? 'none' : '1px solid #1a1208', borderRadius: '2px', cursor: 'pointer', fontSize: '14px' }),
-    tag: (active: boolean) => ({ padding: '4px 12px', border: `1px solid ${active ? '#c8a04a' : '#aaa'}`, background: active ? '#c8a04a' : 'transparent', color: active ? '#1a1208' : '#555', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', margin: '4px', display: 'inline-block' }),
-    scrapCard: { background: '#fffdf7', border: '1px solid #d4c5a0', borderRadius: '4px', padding: '16px', marginBottom: '12px', cursor: 'pointer', boxShadow: '2px 2px 6px rgba(0,0,0,0.05)' },
-    navBtn: { padding: '6px 14px', border: '1px solid #f5f0e8', background: 'transparent', color: '#f5f0e8', borderRadius: '2px', cursor: 'pointer', fontSize: '13px' },
+  const g = {
+    page: { fontFamily: "'Helvetica Neue', 'Hiragino Sans', sans-serif", minHeight: '100vh', background: '#fafafa', color: '#111' } as React.CSSProperties,
+    header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #ebebeb', background: '#fff', position: 'sticky' as const, top: 0, zIndex: 10 },
+    logo: { fontSize: '15px', fontWeight: 600, letterSpacing: '0.02em' },
+    navBtn: { fontSize: '13px', color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0' },
+    body: { maxWidth: '520px', margin: '0 auto', padding: '32px 24px' },
+    h1: { fontSize: '22px', fontWeight: 500, marginBottom: '8px', lineHeight: 1.4 },
+    sub: { fontSize: '13px', color: '#888', lineHeight: 1.7, marginBottom: '32px' },
+    uploadBox: { border: '1px dashed #ccc', borderRadius: '8px', padding: '48px 24px', textAlign: 'center' as const, cursor: 'pointer', background: '#fff' },
+    section: { marginBottom: '28px' },
+    sectionTitle: { fontSize: '11px', fontWeight: 600, color: '#aaa', letterSpacing: '0.08em', textTransform: 'uppercase' as const, marginBottom: '12px' },
+    card: { background: '#fff', border: '1px solid #ebebeb', borderRadius: '8px', padding: '20px', marginBottom: '12px' },
+    articleTitle: { fontSize: '17px', fontWeight: 600, lineHeight: 1.5, marginBottom: '10px' },
+    articleBody: { fontSize: '13px', color: '#555', lineHeight: 1.8 },
+    tag: (active: boolean) => ({ display: 'inline-block', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', margin: '3px', cursor: 'pointer', border: active ? '1px solid #111' : '1px solid #ddd', background: active ? '#111' : '#fff', color: active ? '#fff' : '#555' }),
+    textarea: { width: '100%', minHeight: '80px', border: '1px solid #ebebeb', borderRadius: '6px', padding: '12px', fontSize: '13px', background: '#fff', resize: 'vertical' as const, outline: 'none', boxSizing: 'border-box' as const, fontFamily: 'inherit', color: '#111' },
+    btnPrimary: { width: '100%', padding: '13px', background: '#111', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '14px', fontWeight: 500, cursor: 'pointer', marginBottom: '10px' },
+    btnSecondary: { width: '100%', padding: '13px', background: '#fff', color: '#555', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px', cursor: 'pointer', marginBottom: '10px' },
+    btnDanger: { width: '100%', padding: '13px', background: '#fff', color: '#e53e3e', border: '1px solid #e53e3e', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
+    newsItem: { padding: '14px 0', borderBottom: '1px solid #f0f0f0' },
+    newsTitle: { fontSize: '13px', fontWeight: 600, marginBottom: '4px', lineHeight: 1.5 },
+    newsDesc: { fontSize: '12px', color: '#888', lineHeight: 1.6, marginBottom: '4px' },
+    newsLink: { fontSize: '11px', color: '#aaa', textDecoration: 'none' },
+    scrapCard: { background: '#fff', border: '1px solid #ebebeb', borderRadius: '8px', padding: '18px', marginBottom: '10px', cursor: 'pointer' },
+    scrapTitle: { fontSize: '15px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.4 },
+    scrapDate: { fontSize: '11px', color: '#bbb', marginBottom: '8px' },
+    scrapBody: { fontSize: '13px', color: '#777', lineHeight: 1.6 },
+    dot: { width: '6px', height: '6px', borderRadius: '50%', background: '#111', display: 'inline-block', margin: '0 4px' },
   };
 
   if (screen === 'home') return (
-    <div style={s.app}>
-      <header style={s.header}>
-        <div style={s.logo}>📰 新聞スクラップ帳</div>
-        <button style={s.navBtn} onClick={() => setScreen('scrapbook')}>スクラップ一覧</button>
+    <div style={g.page}>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
+      <header style={g.header}>
+        <span style={g.logo}>新聞スクラップ帳</span>
+        <button style={g.navBtn} onClick={() => setScreen('scrapbook')}>一覧 →</button>
       </header>
-      <div style={s.body}>
-        <div style={{ marginBottom: '24px' }}>
-          <h2 style={{ fontSize: '22px', marginBottom: '8px' }}>気になった記事を、残そう。</h2>
-          <p style={{ color: '#555', fontSize: '14px' }}>新聞の写真を撮るだけで、AIが内容を読み取り関連ニュースを検索。メモやタグで整理できます。</p>
-        </div>
-        <div style={s.capture} onClick={() => fileRef.current?.click()}>
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>📷</div>
-          <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>記事を撮影する</div>
-          <div style={{ fontSize: '13px', color: '#888' }}>タップして写真を選択</div>
+      <div style={g.body}>
+        <h1 style={g.h1}>気になった記事を、<br />残そう。</h1>
+        <p style={g.sub}>写真を撮るだけでAIが読み取り、関連ニュースを検索。タグとメモで整理できます。</p>
+        <div style={g.uploadBox} onClick={() => fileRef.current?.click()}>
+          <div style={{ fontSize: '28px', marginBottom: '12px' }}>↑</div>
+          <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>記事を撮影 / 選択</div>
+          <div style={{ fontSize: '12px', color: '#aaa' }}>JPG・PNG・HEIC対応</div>
           <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
         </div>
-        <div style={{ marginTop: '24px' }}>
-          <h3 style={{ fontSize: '14px', color: '#888', marginBottom: '12px' }}>最近のスクラップ</h3>
-          {scraps.slice(0, 3).map(sc => (
-            <div key={sc.id} style={s.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
-              <div style={{ fontWeight: 700, marginBottom: '6px' }}>{sc.title}</div>
-              <div style={{ fontSize: '12px', color: '#888', marginBottom: '6px' }}>{sc.created_at?.slice(0, 10)}</div>
-              <div style={{ fontSize: '13px', color: '#444' }}>{sc.summary?.slice(0, 60)}…</div>
-              <div style={{ marginTop: '8px' }}>{sc.tags?.split(',').map(t => <span key={t} style={s.tag(false)}>{t}</span>)}</div>
-            </div>
-          ))}
-        </div>
+        {scraps.length > 0 && (
+          <div style={{ marginTop: '40px' }}>
+            <div style={g.sectionTitle}>最近のスクラップ</div>
+            {scraps.slice(0, 3).map(sc => (
+              <div key={sc.id} style={g.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
+                <div style={g.scrapTitle}>{sc.title}</div>
+                <div style={g.scrapDate}>{sc.created_at?.slice(0, 10)}</div>
+                <div style={g.scrapBody}>{sc.summary?.slice(0, 60)}…</div>
+                <div style={{ marginTop: '10px' }}>{sc.tags?.split(',').filter(Boolean).map(t => <span key={t} style={g.tag(false)}>{t}</span>)}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 
   if (screen === 'result') return (
-    <div style={s.app}>
-      <header style={s.header}>
-        <div style={s.logo}>📰 新聞スクラップ帳</div>
-        <button style={s.navBtn} onClick={() => setScreen('home')}>← 戻る</button>
+    <div style={g.page}>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
+      <header style={g.header}>
+        <span style={g.logo}>新聞スクラップ帳</span>
+        <button style={g.navBtn} onClick={() => setScreen('home')}>← 戻る</button>
       </header>
-      <div style={s.body}>
+      <div style={g.body}>
         {analyzing ? (
-          <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <div style={{ fontSize: '40px', marginBottom: '16px' }}>🔍</div>
-            <div style={{ fontSize: '16px' }}>AIが記事を読み取っています…</div>
+          <div style={{ textAlign: 'center', padding: '80px 0' }}>
+            <div style={{ marginBottom: '16px', fontSize: '13px', color: '#888' }}>AIが読み取っています</div>
+            <div>
+              {[0, 0.2, 0.4].map((d, i) => <span key={i} style={{ ...g.dot, animation: `pulse 1.2s ${d}s infinite` }} />)}
+            </div>
           </div>
         ) : analyzed ? (
           <>
-            <div style={s.card}>
-              {analyzed.imageUrl && <img src={analyzed.imageUrl} alt="記事" style={{ width: '100%', borderRadius: '2px', marginBottom: '16px', objectFit: 'cover', maxHeight: '200px' }} />}
-              <h2 style={{ fontSize: '18px', marginBottom: '12px', lineHeight: 1.6 }}>{analyzed.title}</h2>
-              <p style={{ fontSize: '14px', color: '#444', lineHeight: 1.8 }}>{analyzed.summary}</p>
+            <div style={{ ...g.card, marginBottom: '24px' }}>
+              {analyzed.imageUrl && <img src={analyzed.imageUrl} alt="記事" style={{ width: '100%', borderRadius: '4px', marginBottom: '16px', objectFit: 'cover', maxHeight: '180px' }} />}
+              <div style={g.articleTitle}>{analyzed.title}</div>
+              <div style={g.articleBody}>{analyzed.summary}</div>
             </div>
-            <div style={s.card}>
-              <h3 style={{ fontSize: '14px', color: '#888', marginBottom: '12px' }}>🔖 タグを選ぶ</h3>
-              {TAGS.map(t => <span key={t} style={s.tag(selectedTags.includes(t))} onClick={() => setSelectedTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}>{t}</span>)}
+            <div style={g.section}>
+              <div style={g.sectionTitle}>タグ</div>
+              <div>{TAGS.map(t => <span key={t} style={g.tag(selectedTags.includes(t))} onClick={() => setSelectedTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}>{t}</span>)}</div>
             </div>
-            <div style={s.card}>
-              <h3 style={{ fontSize: '14px', color: '#888', marginBottom: '12px' }}>📝 メモ</h3>
-              <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="感想や考察をメモ…" style={{ width: '100%', minHeight: '80px', border: '1px solid #d4c5a0', borderRadius: '2px', padding: '10px', fontSize: '14px', background: '#fffdf7', resize: 'vertical', boxSizing: 'border-box' }} />
+            <div style={g.section}>
+              <div style={g.sectionTitle}>メモ</div>
+              <textarea style={g.textarea} value={memo} onChange={e => setMemo(e.target.value)} placeholder="感想や考察…" />
             </div>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button style={s.btn('secondary')} onClick={() => setScreen('home')}>キャンセル</button>
-              <button style={s.btn('primary')} onClick={handleSave}>スクラップに保存</button>
+            <div style={g.section}>
+              <div style={g.sectionTitle}>関連ニュース</div>
+              {searchingNews ? (
+                <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>検索中…</div>
+              ) : newsResults.length > 0 ? (
+                newsResults.map((n, i) => (
+                  <div key={i} style={g.newsItem}>
+                    <div style={g.newsTitle}>{n.title}</div>
+                    <div style={g.newsDesc}>{n.description?.slice(0, 80)}…</div>
+                    <a href={n.url} target="_blank" rel="noopener noreferrer" style={g.newsLink}>
+                      {(() => { try { return new URL(n.url).hostname; } catch { return n.url; } })()}
+                    </a>
+                  </div>
+                ))
+              ) : (
+                <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>関連ニュースが見つかりませんでした</div>
+              )}
             </div>
+            <button style={g.btnPrimary} onClick={handleSave}>スクラップに保存</button>
+            <button style={g.btnSecondary} onClick={() => setScreen('home')}>キャンセル</button>
           </>
         ) : null}
       </div>
@@ -165,23 +235,22 @@ export default function Home() {
   );
 
   if (screen === 'scrapbook') return (
-    <div style={s.app}>
-      <header style={s.header}>
-        <div style={s.logo}>📰 新聞スクラップ帳</div>
-        <button style={s.navBtn} onClick={() => setScreen('home')}>← ホーム</button>
+    <div style={g.page}>
+      <header style={g.header}>
+        <span style={g.logo}>新聞スクラップ帳</span>
+        <button style={g.navBtn} onClick={() => setScreen('home')}>← ホーム</button>
       </header>
-      <div style={s.body}>
-        <h2 style={{ fontSize: '20px', marginBottom: '16px' }}>スクラップ一覧</h2>
-        <div style={{ marginBottom: '16px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
-          {['すべて', ...TAGS].map(t => <span key={t} style={s.tag(searchTag === t)} onClick={() => setSearchTag(t)}>{t}</span>)}
+      <div style={g.body}>
+        <div style={{ marginBottom: '24px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          {['すべて', ...TAGS].map(t => <span key={t} style={g.tag(searchTag === t)} onClick={() => setSearchTag(t)}>{t}</span>)}
         </div>
-        {filtered.length === 0 && <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>スクラップがありません</div>}
+        {filtered.length === 0 && <div style={{ fontSize: '13px', color: '#bbb', textAlign: 'center', padding: '60px 0' }}>スクラップがありません</div>}
         {filtered.map(sc => (
-          <div key={sc.id} style={s.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
-            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>{sc.title}</div>
-            <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>{sc.created_at?.slice(0, 10)}</div>
-            <div style={{ fontSize: '13px', color: '#444' }}>{sc.summary?.slice(0, 80)}…</div>
-            <div style={{ marginTop: '8px' }}>{sc.tags?.split(',').filter(Boolean).map(t => <span key={t} style={s.tag(false)}>{t}</span>)}</div>
+          <div key={sc.id} style={g.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
+            <div style={g.scrapTitle}>{sc.title}</div>
+            <div style={g.scrapDate}>{sc.created_at?.slice(0, 10)}</div>
+            <div style={g.scrapBody}>{sc.summary?.slice(0, 80)}…</div>
+            <div style={{ marginTop: '10px' }}>{sc.tags?.split(',').filter(Boolean).map(t => <span key={t} style={g.tag(false)}>{t}</span>)}</div>
           </div>
         ))}
       </div>
@@ -189,20 +258,37 @@ export default function Home() {
   );
 
   if (screen === 'detail' && current) return (
-    <div style={s.app}>
-      <header style={s.header}>
-        <div style={s.logo}>📰 新聞スクラップ帳</div>
-        <button style={s.navBtn} onClick={() => setScreen('scrapbook')}>← 一覧へ</button>
+    <div style={g.page}>
+      <header style={g.header}>
+        <span style={g.logo}>新聞スクラップ帳</span>
+        <button style={g.navBtn} onClick={() => setScreen('scrapbook')}>← 一覧</button>
       </header>
-      <div style={s.body}>
-        <div style={s.card}>
-          {current.image_url && <img src={current.image_url} alt="記事" style={{ width: '100%', borderRadius: '2px', marginBottom: '16px', objectFit: 'cover', maxHeight: '220px' }} />}
-          <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>{current.created_at?.slice(0, 10)}</div>
-          <h2 style={{ fontSize: '19px', lineHeight: 1.6, marginBottom: '12px' }}>{current.title}</h2>
-          <p style={{ fontSize: '14px', color: '#333', lineHeight: 1.9 }}>{current.summary}</p>
+      <div style={g.body}>
+        <div style={g.card}>
+          {current.image_url && <img src={current.image_url} alt="記事" style={{ width: '100%', borderRadius: '4px', marginBottom: '16px', objectFit: 'cover', maxHeight: '200px' }} />}
+          <div style={g.scrapDate}>{current.created_at?.slice(0, 10)}</div>
+          <div style={g.articleTitle}>{current.title}</div>
+          <div style={g.articleBody}>{current.summary}</div>
         </div>
-        {current.tags && <div style={s.card}><h3 style={{ fontSize: '13px', color: '#888', marginBottom: '10px' }}>🔖 タグ</h3>{current.tags.split(',').filter(Boolean).map(t => <span key={t} style={s.tag(true)}>{t}</span>)}</div>}
-        {current.memo && <div style={s.card}><h3 style={{ fontSize: '13px', color: '#888', marginBottom: '10px' }}>📝 メモ</h3><p style={{ fontSize: '14px', lineHeight: 1.8 }}>{current.memo}</p></div>}
+        {current.tags && (
+          <div style={g.section}>
+            <div style={g.sectionTitle}>タグ</div>
+            {current.tags.split(',').filter(Boolean).map(t => <span key={t} style={g.tag(true)}>{t}</span>)}
+          </div>
+        )}
+        {current.memo && (
+          <div style={g.section}>
+            <div style={g.sectionTitle}>メモ</div>
+            <div style={{ ...g.card, fontSize: '13px', lineHeight: 1.8, color: '#555' }}>{current.memo}</div>
+          </div>
+        )}
+        <button
+          style={{ ...g.btnDanger, opacity: deleting ? 0.5 : 1 }}
+          onClick={() => handleDelete(current.id)}
+          disabled={deleting}
+        >
+          {deleting ? '削除中…' : 'このスクラップを削除'}
+        </button>
       </div>
     </div>
   );
