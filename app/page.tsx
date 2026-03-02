@@ -43,8 +43,16 @@ export default function Home() {
   useEffect(() => { fetchScraps(); }, []);
 
   const fetchScraps = async () => {
-    const { data } = await supabase.from('scraps').select('*').order('created_at', { ascending: false });
-    if (data) setScraps(data);
+    const { data } = await supabase
+      .from('scraps')
+      .select('id, title, summary, memo, tags, created_at') // image_urlを除外して高速化
+      .order('created_at', { ascending: false });
+    if (data) setScraps(data as Scrap[]);
+  };
+
+  const fetchScrapWithImage = async (id: number) => {
+    const { data } = await supabase.from('scraps').select('*').eq('id', id).single();
+    return data as Scrap | null;
   };
 
   const searchNews = async (title: string) => {
@@ -89,14 +97,14 @@ export default function Home() {
 
   const handleSave = async () => {
     if (!analyzed) return;
-    await supabase.from('scraps').insert({
+    const { data } = await supabase.from('scraps').insert({
       title: analyzed.title,
       summary: analyzed.summary,
       memo,
       tags: selectedTags.join(','),
       image_url: analyzed.imageUrl,
-    });
-    await fetchScraps();
+    }).select('id, title, summary, memo, tags, created_at').single();
+    if (data) setScraps(prev => [data as Scrap, ...prev]); // 楽観的追加
     setSelectedTags([]);
     setMemo('');
     setAnalyzed(null);
@@ -107,10 +115,18 @@ export default function Home() {
   const handleDelete = async (id: number) => {
     if (!confirm('このスクラップを削除しますか？')) return;
     setDeleting(true);
-    await supabase.from('scraps').delete().eq('id', id);
-    await fetchScraps();
-    setDeleting(false);
+    setScraps(prev => prev.filter(s => s.id !== id)); // 即座に画面から削除
     setScreen('scrapbook');
+    await supabase.from('scraps').delete().eq('id', id); // バックグラウンドで削除
+    setDeleting(false);
+  };
+
+  const handleOpenDetail = async (sc: Scrap) => {
+    setCurrent(sc);
+    setScreen('detail');
+    // 詳細画面を開いたときだけ画像を取得
+    const full = await fetchScrapWithImage(sc.id);
+    if (full) setCurrent(full);
   };
 
   const filtered = searchTag === 'すべて' ? scraps : scraps.filter(s => s.tags?.includes(searchTag));
@@ -165,7 +181,7 @@ export default function Home() {
           <div style={{ marginTop: '40px' }}>
             <div style={g.sectionTitle}>最近のスクラップ</div>
             {scraps.slice(0, 3).map(sc => (
-              <div key={sc.id} style={g.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
+              <div key={sc.id} style={g.scrapCard} onClick={() => handleOpenDetail(sc)}>
                 <div style={g.scrapTitle}>{sc.title}</div>
                 <div style={g.scrapDate}>{sc.created_at?.slice(0, 10)}</div>
                 <div style={g.scrapBody}>{sc.summary?.slice(0, 60)}…</div>
@@ -189,9 +205,7 @@ export default function Home() {
         {analyzing ? (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <div style={{ marginBottom: '16px', fontSize: '13px', color: '#888' }}>AIが読み取っています</div>
-            <div>
-              {[0, 0.2, 0.4].map((d, i) => <span key={i} style={{ ...g.dot, animation: `pulse 1.2s ${d}s infinite` }} />)}
-            </div>
+            <div>{[0, 0.2, 0.4].map((d, i) => <span key={i} style={{ ...g.dot, animation: `pulse 1.2s ${d}s infinite` }} />)}</div>
           </div>
         ) : analyzed ? (
           <>
@@ -246,7 +260,7 @@ export default function Home() {
         </div>
         {filtered.length === 0 && <div style={{ fontSize: '13px', color: '#bbb', textAlign: 'center', padding: '60px 0' }}>スクラップがありません</div>}
         {filtered.map(sc => (
-          <div key={sc.id} style={g.scrapCard} onClick={() => { setCurrent(sc); setScreen('detail'); }}>
+          <div key={sc.id} style={g.scrapCard} onClick={() => handleOpenDetail(sc)}>
             <div style={g.scrapTitle}>{sc.title}</div>
             <div style={g.scrapDate}>{sc.created_at?.slice(0, 10)}</div>
             <div style={g.scrapBody}>{sc.summary?.slice(0, 80)}…</div>
@@ -287,7 +301,7 @@ export default function Home() {
           onClick={() => handleDelete(current.id)}
           disabled={deleting}
         >
-          {deleting ? '削除中…' : 'このスクラップを削除'}
+          このスクラップを削除
         </button>
       </div>
     </div>
