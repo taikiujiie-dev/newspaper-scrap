@@ -45,7 +45,7 @@ export default function Home() {
   const fetchScraps = async () => {
     const { data } = await supabase
       .from('scraps')
-      .select('id, title, summary, memo, tags, created_at') // image_urlを除外して高速化
+      .select('id, title, summary, memo, tags, created_at')
       .order('created_at', { ascending: false });
     if (data) setScraps(data as Scrap[]);
   };
@@ -57,6 +57,7 @@ export default function Home() {
 
   const searchNews = async (title: string) => {
     setSearchingNews(true);
+    setNewsResults([]);
     try {
       const res = await fetch('/api/search', {
         method: 'POST',
@@ -104,7 +105,7 @@ export default function Home() {
       tags: selectedTags.join(','),
       image_url: analyzed.imageUrl,
     }).select('id, title, summary, memo, tags, created_at').single();
-    if (data) setScraps(prev => [data as Scrap, ...prev]); // 楽観的追加
+    if (data) setScraps(prev => [data as Scrap, ...prev]);
     setSelectedTags([]);
     setMemo('');
     setAnalyzed(null);
@@ -115,16 +116,17 @@ export default function Home() {
   const handleDelete = async (id: number) => {
     if (!confirm('このスクラップを削除しますか？')) return;
     setDeleting(true);
-    setScraps(prev => prev.filter(s => s.id !== id)); // 即座に画面から削除
+    setScraps(prev => prev.filter(s => s.id !== id));
     setScreen('scrapbook');
-    await supabase.from('scraps').delete().eq('id', id); // バックグラウンドで削除
+    await supabase.from('scraps').delete().eq('id', id);
     setDeleting(false);
   };
 
   const handleOpenDetail = async (sc: Scrap) => {
     setCurrent(sc);
+    setNewsResults([]);
     setScreen('detail');
-    // 詳細画面を開いたときだけ画像を取得
+    searchNews(sc.title);
     const full = await fetchScrapWithImage(sc.id);
     if (full) setCurrent(full);
   };
@@ -273,6 +275,7 @@ export default function Home() {
 
   if (screen === 'detail' && current) return (
     <div style={g.page}>
+      <style>{`@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
       <header style={g.header}>
         <span style={g.logo}>新聞スクラップ帳</span>
         <button style={g.navBtn} onClick={() => setScreen('scrapbook')}>← 一覧</button>
@@ -296,6 +299,24 @@ export default function Home() {
             <div style={{ ...g.card, fontSize: '13px', lineHeight: 1.8, color: '#555' }}>{current.memo}</div>
           </div>
         )}
+        <div style={g.section}>
+          <div style={g.sectionTitle}>関連ニュース</div>
+          {searchingNews ? (
+            <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>検索中…</div>
+          ) : newsResults.length > 0 ? (
+            newsResults.map((n, i) => (
+              <div key={i} style={g.newsItem}>
+                <div style={g.newsTitle}>{n.title}</div>
+                <div style={g.newsDesc}>{n.description?.slice(0, 80)}…</div>
+                <a href={n.url} target="_blank" rel="noopener noreferrer" style={g.newsLink}>
+                  {(() => { try { return new URL(n.url).hostname; } catch { return n.url; } })()}
+                </a>
+              </div>
+            ))
+          ) : (
+            <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>関連ニュースが見つかりませんでした</div>
+          )}
+        </div>
         <button
           style={{ ...g.btnDanger, opacity: deleting ? 0.5 : 1 }}
           onClick={() => handleDelete(current.id)}
