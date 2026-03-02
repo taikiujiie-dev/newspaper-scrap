@@ -16,7 +16,6 @@ type Scrap = {
   summary: string;
   memo: string;
   tags: string;
-  image_url: string;
   created_at: string;
 };
 
@@ -31,7 +30,7 @@ export default function Home() {
   const [scraps, setScraps] = useState<Scrap[]>([]);
   const [current, setCurrent] = useState<Scrap | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzed, setAnalyzed] = useState<{ title: string; summary: string; imageUrl: string } | null>(null);
+  const [analyzed, setAnalyzed] = useState<{ title: string; summary: string } | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [memo, setMemo] = useState('');
   const [searchTag, setSearchTag] = useState('すべて');
@@ -48,11 +47,6 @@ export default function Home() {
       .select('id, title, summary, memo, tags, created_at')
       .order('created_at', { ascending: false });
     if (data) setScraps(data as Scrap[]);
-  };
-
-  const fetchScrapWithImage = async (id: number) => {
-    const { data } = await supabase.from('scraps').select('*').eq('id', id).single();
-    return data as Scrap | null;
   };
 
   const searchNews = async (title: string) => {
@@ -86,10 +80,10 @@ export default function Home() {
           body: JSON.stringify({ base64, mediaType: file.type }),
         });
         const data = await res.json();
-        setAnalyzed({ ...data, imageUrl: e.target?.result as string });
+        setAnalyzed(data);
         searchNews(data.title);
       } catch {
-        setAnalyzed({ title: '読み取りに失敗しました', summary: 'もう一度お試しください。', imageUrl: e.target?.result as string });
+        setAnalyzed({ title: '読み取りに失敗しました', summary: 'もう一度お試しください。' });
       }
       setAnalyzing(false);
     };
@@ -103,7 +97,6 @@ export default function Home() {
       summary: analyzed.summary,
       memo,
       tags: selectedTags.join(','),
-      image_url: analyzed.imageUrl,
     }).select('id, title, summary, memo, tags, created_at').single();
     if (data) setScraps(prev => [data as Scrap, ...prev]);
     setSelectedTags([]);
@@ -127,8 +120,6 @@ export default function Home() {
     setNewsResults([]);
     setScreen('detail');
     searchNews(sc.title);
-    const full = await fetchScrapWithImage(sc.id);
-    if (full) setCurrent(full);
   };
 
   const filtered = searchTag === 'すべて' ? scraps : scraps.filter(s => s.tags?.includes(searchTag));
@@ -163,6 +154,27 @@ export default function Home() {
     dot: { width: '6px', height: '6px', borderRadius: '50%', background: '#111', display: 'inline-block', margin: '0 4px' },
   };
 
+  const RelatedContent = () => (
+    <div style={g.section}>
+      <div style={g.sectionTitle}>関連コンテンツ</div>
+      {searchingNews ? (
+        <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>検索中…</div>
+      ) : newsResults.length > 0 ? (
+        newsResults.map((n, i) => (
+          <div key={i} style={g.newsItem}>
+            <div style={g.newsTitle}>{n.title}</div>
+            <div style={g.newsDesc}>{n.description?.slice(0, 80)}</div>
+            <a href={n.url} target="_blank" rel="noopener noreferrer" style={g.newsLink}>
+              {(() => { try { return new URL(n.url).hostname; } catch { return n.url; } })()}
+            </a>
+          </div>
+        ))
+      ) : (
+        <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>関連コンテンツが見つかりませんでした</div>
+      )}
+    </div>
+  );
+
   if (screen === 'home') return (
     <div style={g.page}>
       <style>{`@keyframes pulse{0%,100%{opacity:0.3}50%{opacity:1}}`}</style>
@@ -172,7 +184,7 @@ export default function Home() {
       </header>
       <div style={g.body}>
         <h1 style={g.h1}>気になった記事を、<br />残そう。</h1>
-        <p style={g.sub}>写真を撮るだけでAIが読み取り、関連ニュースを検索。タグとメモで整理できます。</p>
+        <p style={g.sub}>写真を撮るだけでAIが読み取り、関連コンテンツを検索。タグとメモで整理できます。</p>
         <div style={g.uploadBox} onClick={() => fileRef.current?.click()}>
           <div style={{ fontSize: '28px', marginBottom: '12px' }}>↑</div>
           <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '4px' }}>記事を撮影 / 選択</div>
@@ -212,7 +224,6 @@ export default function Home() {
         ) : analyzed ? (
           <>
             <div style={{ ...g.card, marginBottom: '24px' }}>
-              {analyzed.imageUrl && <img src={analyzed.imageUrl} alt="記事" style={{ width: '100%', borderRadius: '4px', marginBottom: '16px', objectFit: 'cover', maxHeight: '180px' }} />}
               <div style={g.articleTitle}>{analyzed.title}</div>
               <div style={g.articleBody}>{analyzed.summary}</div>
             </div>
@@ -224,24 +235,7 @@ export default function Home() {
               <div style={g.sectionTitle}>メモ</div>
               <textarea style={g.textarea} value={memo} onChange={e => setMemo(e.target.value)} placeholder="感想や考察…" />
             </div>
-            <div style={g.section}>
-              <div style={g.sectionTitle}>関連ニュース</div>
-              {searchingNews ? (
-                <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>検索中…</div>
-              ) : newsResults.length > 0 ? (
-                newsResults.map((n, i) => (
-                  <div key={i} style={g.newsItem}>
-                    <div style={g.newsTitle}>{n.title}</div>
-                    <div style={g.newsDesc}>{n.description?.slice(0, 80)}…</div>
-                    <a href={n.url} target="_blank" rel="noopener noreferrer" style={g.newsLink}>
-                      {(() => { try { return new URL(n.url).hostname; } catch { return n.url; } })()}
-                    </a>
-                  </div>
-                ))
-              ) : (
-                <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>関連ニュースが見つかりませんでした</div>
-              )}
-            </div>
+            <RelatedContent />
             <button style={g.btnPrimary} onClick={handleSave}>スクラップに保存</button>
             <button style={g.btnSecondary} onClick={() => setScreen('home')}>キャンセル</button>
           </>
@@ -282,7 +276,6 @@ export default function Home() {
       </header>
       <div style={g.body}>
         <div style={g.card}>
-          {current.image_url && <img src={current.image_url} alt="記事" style={{ width: '100%', borderRadius: '4px', marginBottom: '16px', objectFit: 'cover', maxHeight: '200px' }} />}
           <div style={g.scrapDate}>{current.created_at?.slice(0, 10)}</div>
           <div style={g.articleTitle}>{current.title}</div>
           <div style={g.articleBody}>{current.summary}</div>
@@ -299,24 +292,7 @@ export default function Home() {
             <div style={{ ...g.card, fontSize: '13px', lineHeight: 1.8, color: '#555' }}>{current.memo}</div>
           </div>
         )}
-        <div style={g.section}>
-          <div style={g.sectionTitle}>関連ニュース</div>
-          {searchingNews ? (
-            <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>検索中…</div>
-          ) : newsResults.length > 0 ? (
-            newsResults.map((n, i) => (
-              <div key={i} style={g.newsItem}>
-                <div style={g.newsTitle}>{n.title}</div>
-                <div style={g.newsDesc}>{n.description?.slice(0, 80)}…</div>
-                <a href={n.url} target="_blank" rel="noopener noreferrer" style={g.newsLink}>
-                  {(() => { try { return new URL(n.url).hostname; } catch { return n.url; } })()}
-                </a>
-              </div>
-            ))
-          ) : (
-            <div style={{ fontSize: '13px', color: '#aaa', padding: '12px 0' }}>関連ニュースが見つかりませんでした</div>
-          )}
-        </div>
+        <RelatedContent />
         <button
           style={{ ...g.btnDanger, opacity: deleting ? 0.5 : 1 }}
           onClick={() => handleDelete(current.id)}

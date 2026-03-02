@@ -13,17 +13,17 @@ export async function POST(req: NextRequest) {
         'anthropic-beta': 'web-search-2025-03-05',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [
           {
             role: 'user',
-            content: `「${query}」に関連する最新ニュースを3件検索して、以下のJSON形式のみで返してください。他のテキストは不要です。
+            content: `「${query}」に関連する記事を3件探してください。ニュース・コラム・解説・意見記事など、読んで役立つものなら何でもOKです。以下のJSON形式のみで返してください。余分なテキスト不要。
 [
-  {"title": "記事タイトル", "description": "100字以内の概要", "url": "URL"},
-  {"title": "記事タイトル", "description": "100字以内の概要", "url": "URL"},
-  {"title": "記事タイトル", "description": "100字以内の概要", "url": "URL"}
+  {"title": "タイトル", "description": "80字以内の概要", "url": "URL"},
+  {"title": "タイトル", "description": "80字以内の概要", "url": "URL"},
+  {"title": "タイトル", "description": "80字以内の概要", "url": "URL"}
 ]`,
           },
         ],
